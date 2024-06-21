@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "dyndep"
+version = "0.1.0"
+description = "Streamlit app for displaying script and package dependencies"
+authors = ["Erich Raschle <erichraschle@gmail.com>"]
+license = "MIT"
+readme = "README.org"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+streamlit = "^1.36.0"
+st-cytoscape = "^0.0.5"
+
+[tool.poetry.group.dev.dependencies]
+pyright = "^1.1.368"
+ruff = "^0.4.10"
+ruff-lsp = "^0.0.53"
+isort = "^5.13.2"
+pytest = "^8.2.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
