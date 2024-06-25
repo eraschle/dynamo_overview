@@ -240,7 +240,7 @@ def _get_node_style() -> Dict[str, Any]:
             "height": 20,
             "background-color": "data(color)",
             "shape": "data(shape)",
-            "font-size": 10,
+            "font-size": 6,
             "text-valign": "center",
         },
     }
@@ -303,12 +303,13 @@ def _get_graph(column, node: Optional[DynamoFile], library: Iterable[CustomNodeF
     with column:
         selected = graph.cytoscape(
             elements=_get_elements(node, library),
-            stylesheet=[_get_node_style(), _get_edge_style()],
+            stylesheet=_get_graph_style(),
             layout=_get_graph_layout(),
             selection_type="single",
             user_panning_enabled=True,
             user_zooming_enabled=True,
             key="graph",
+            height="500px",
         )
         selected_nodes = selected.get("nodes", [])
         if len(selected_nodes) == 0:
