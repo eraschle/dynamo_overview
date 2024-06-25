@@ -9,6 +9,10 @@ from dyndep.folder_picker import folder_picker
 from dyndep.models import CustomNodeFile, DynamoFile, ScriptFile
 from dyndep.service import GraphElement
 
+DEBUG = True
+DEV_SCRIPT_PATH = "/home/elyo/workspace/work/skripte/"
+DEV_LIBRARY_PATH = "/home/elyo/workspace/work/software/Dynamo/Packages/packages/RSRG/"
+
 st.set_page_config(
     page_title="Dynamo Overview",
     page_icon="./apps/overview/dynamo.png",

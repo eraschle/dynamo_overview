@@ -1,7 +1,29 @@
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Iterable, List
+
+RE_BACKUP = re.compile("[_]+Backup[_]*")
+
+BKP_VALUES = [
+    "_Backup",
+    "__dev__",
+]
+
+
+def is_backup_name(name: str) -> bool:
+    return any(val in name for val in BKP_VALUES)
+
+
+def is_backup(path: Path) -> bool:
+    print(f"BKP Check {path}")
+    if is_backup_name(path.name):
+        return True
+    is_bkp = any(is_backup_name(par.name) for par in path.parents)
+    if is_bkp:
+        print(f"Is BKP: {path}")
+    return is_bkp
 
 
 @dataclass
@@ -46,6 +68,10 @@ class DynamoFile:
     @property
     def is_script(self) -> bool:
         return self.path.suffix.lower().endswith("dyn")
+
+    @property
+    def is_backup(self) -> bool:
+        return is_backup(self.path)
 
     @abstractmethod
     def add_used_in(self, nodes: Iterable["DynamoFile"]) -> None:

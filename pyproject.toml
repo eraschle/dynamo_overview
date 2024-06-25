@@ -17,6 +17,7 @@ ruff = "^0.4.10"
 ruff-lsp = "^0.0.53"
 isort = "^5.13.2"
 pytest = "^8.2.2"
+debugpy = "^1.8.1"
 
 [build-system]
 requires = ["poetry-core"]
