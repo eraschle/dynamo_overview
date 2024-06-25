@@ -44,21 +44,26 @@ SCRIPT_PATH = "script_path"
 LIBRARY_PATH = "library_path"
 
 
-def input_data() -> Tuple[Iterable[ScriptFile], Iterable[CustomNodeFile]]:
+def _are_path_selected():
+    return not (st.session_state.get(SCRIPT_PATH) is None or st.session_state.get(LIBRARY_PATH) is None)
+
+
+def input_data() -> Tuple[Collection[ScriptFile], Collection[CustomNodeFile]]:
     col_left, col_right = st.columns(2)
     folder_picker(
         col_left,
-        title="Skripts Folder",
+        title="Skripts",
         key="btn_scripts",
         state_key=SCRIPT_PATH,
     )
     folder_picker(
         col_right,
-        title="Library Folder",
+        title="Library",
         key="btn_custom",
         state_key=LIBRARY_PATH,
     )
-    if st.session_state.get(SCRIPT_PATH) is None or st.session_state.get(LIBRARY_PATH) is None:
+    st.divider()
+    if not _are_path_selected():
         return ([], [])
     return service.script_n_custom_nodes(
         Path(st.session_state[SCRIPT_PATH]),
