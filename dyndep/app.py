@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import st_cytoscape as graph
 import streamlit as st
@@ -71,6 +71,10 @@ def _display_used_in(node: DynamoFile) -> str:
     return f"{_node_name(node)} ({USED_IN_STR}: {used_count})"
 
 
+def _display_unused(node: DynamoFile) -> str:
+    return _node_name(node)
+
+
 def _get_dependency_count(node: DynamoFile, library_uuid: Set[str]) -> int:
     unique_uuid = set(node.dependencies)
     dependencies = [uuid for uuid in unique_uuid if uuid in library_uuid]
@@ -78,6 +82,8 @@ def _get_dependency_count(node: DynamoFile, library_uuid: Set[str]) -> int:
 
 
 def _node_display(node: DynamoFile, library_uuid: Set[str]) -> str:
+    if st.session_state[SELECT_TYPE_KEY].startswith(UNUSED_TYPE):
+        return _display_unused(node)
     dependencies = _get_dependency_count(node, library_uuid)
     if st.session_state[SORT_KEY] == SORT_DEPENDENCY:
         return _display_dependency(node, dependencies)
@@ -94,17 +100,39 @@ def _show_in_selection(node: DynamoFile, library_uuid: Iterable[str]):
 
 SCRIPT_TYPE = "Scripts"
 CUSTOM_TYPE = "Custom Nodes"
+UNUSED_TYPE = "Unused Nodes"
 SELECT_TYPE_KEY = "select_node_type"
 
 
-def add_node_type_radio(script: Iterable[ScriptFile], custom: Iterable[CustomNodeFile]) -> Iterable[DynamoFile]:
+def _option_name(node_name: str, nodes: Collection[DynamoFile]) -> str:
+    if not _are_path_selected():
+        return node_name
+    return f"{node_name} ({len(nodes)})"
+
+
+def add_node_type_radio(scripts: Collection[ScriptFile], custom: Collection[CustomNodeFile]) -> Iterable[DynamoFile]:
+    scripts = [node for node in scripts if node.has_dependency]
+    unused = [node for node in custom if node.is_unused and not node.is_generated]
+    custom = [node for node in custom if not node.is_unused and not node.is_generated]
     node_type = st.radio(
         label="Select type.",
-        options=[SCRIPT_TYPE, CUSTOM_TYPE],
+        options=[
+            _option_name(SCRIPT_TYPE, scripts),
+            _option_name(CUSTOM_TYPE, custom),
+            _option_name(UNUSED_TYPE, unused),
+        ],
         key=SELECT_TYPE_KEY,
         horizontal=True,
     )
-    return script if node_type == SCRIPT_TYPE else custom
+    if node_type is None:
+        return []
+    if node_type.startswith(SCRIPT_TYPE):
+        return scripts
+    if node_type.startswith(CUSTOM_TYPE):
+        return custom
+    if node_type.startswith(UNUSED_TYPE):
+        return unused
+    return []
 
 
 def sort_node_name(node: DynamoFile) -> str:
@@ -160,7 +188,9 @@ def add_node_sort_radio(nodes: Iterable[DynamoFile]) -> List[DynamoFile]:
     return sorted(nodes, key=sort_func, reverse=reverse)
 
 
-def add_node_sort_and_type(column, script: Iterable[ScriptFile], custom: Iterable[CustomNodeFile]) -> List[DynamoFile]:
+def add_node_sort_and_type(
+    column, script: Collection[ScriptFile], custom: Collection[CustomNodeFile]
+) -> List[DynamoFile]:
     with column:
         nodes = add_node_type_radio(script, custom)
         return add_node_sort_radio(nodes)

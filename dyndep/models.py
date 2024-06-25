@@ -31,6 +31,14 @@ class DynamoFile:
         file = str(self.path)
         return file.replace(root, "")
 
+    @property
+    def is_unused(self) -> bool:
+        return len(self.node_used_in()) == 0
+
+    @property
+    def has_dependency(self) -> bool:
+        return len(self.dependencies) > 0
+
     @abstractmethod
     def add_used_in(self, nodes: Iterable["DynamoFile"]) -> None:
         pass
@@ -50,6 +58,10 @@ class CustomNodeFile(DynamoFile):
         nodes = [node for node in nodes if node not in self.used_in]
         if len(nodes) > 0:
             self.used_in.extend(nodes)
+
+    @property
+    def is_generated(self) -> bool:
+        return self.path.name.startswith("Generate")
 
     def node_used_in(self) -> List[DynamoFile]:
         return sorted(self.used_in, key=lambda ele: ele.name)

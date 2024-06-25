@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple, Type, TypeVar
+from typing import Collection, Dict, Iterable, List, Tuple, Type, TypeVar
 
 from dyndep import builder
 from dyndep.models import CustomNodeFile, DynamoFile, ScriptFile
@@ -56,7 +56,7 @@ def script_file_dict(path: Path) -> Dict[str, ScriptFile]:
     return {script.uuid: script for script in scripts}
 
 
-def script_n_custom_nodes(script: Path, custom: Path) -> Tuple[Iterable[ScriptFile], Iterable[CustomNodeFile]]:
+def script_n_custom_nodes(script: Path, custom: Path) -> Tuple[Collection[ScriptFile], Collection[CustomNodeFile]]:
     custom_dict = _get_custom_node_dict(custom)
     scripts = builder.get_script_nodes(script)
     add_used_in(scripts, custom_dict.values())
