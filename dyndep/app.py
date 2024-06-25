@@ -1,5 +1,3 @@
-import argparse
-import os
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
@@ -10,29 +8,6 @@ from dyndep import service
 from dyndep.folder_picker import folder_picker
 from dyndep.models import CustomNodeFile, DynamoFile, ScriptFile
 from dyndep.service import GraphElement
-
-
-def _parse_arguments() -> Tuple[Path, Path]:
-    parser = argparse.ArgumentParser(
-        prog="Script / Custom Node Visualisation",
-        description="Create dynamic visualisation of script / custom node relation.",
-        epilog="Ein wenig BIM, BIM mit Bam, Bam",
-    )
-    parser.add_argument(
-        "-s",
-        "--scripts",
-        help="Root directory where the scripts are saved.",
-        required=True,
-    )
-    parser.add_argument(
-        "-l",
-        "--library",
-        help="Root directory where the custom nodes are saved.",
-        required=True,
-    )
-    args = parser.parse_args()
-    return Path(args.scripts), Path(args.library)
-
 
 st.set_page_config(
     page_title="Dynamo Overview",
@@ -205,7 +180,6 @@ def add_selection_box(column, nodes: Iterable[DynamoFile], library: Iterable[Cus
 
 
 def _get_node(node: DynamoFile, selectable: bool) -> Dict[str, Any]:
-    print(node)
     return {
         "data": {
             "id": node.uuid,
@@ -295,7 +269,6 @@ def _get_graph(column, node: Optional[DynamoFile], library: Iterable[CustomNodeF
     if node is None:
         return None
     nodes = [node, *library, *node.node_used_in()]
-    print(f"Nodes: {nodes}")
     node_dict = {node.uuid: node for node in nodes}
     with column:
         selected = graph.cytoscape(
