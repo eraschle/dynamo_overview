@@ -24,20 +24,24 @@ def _are_path_selected():
 
 
 def input_data() -> Tuple[Collection[ScriptFile], Collection[CustomNodeFile]]:
-    col_left, col_right = st.columns(2)
-    folder_picker(
-        col_left,
-        title="Skripts",
-        key="btn_scripts",
-        state_key=SCRIPT_PATH,
-    )
-    folder_picker(
-        col_right,
-        title="Library",
-        key="btn_custom",
-        state_key=LIBRARY_PATH,
-    )
-    st.divider()
+    with st.sidebar:
+        col_left, col_right = st.columns(2)
+        if DEBUG:
+            st.session_state[SCRIPT_PATH] = DEV_SCRIPT_PATH
+        folder_picker(
+            col_left,
+            title="Skripts",
+            key="btn_scripts",
+            state_key=SCRIPT_PATH,
+        )
+        if DEBUG:
+            st.session_state[LIBRARY_PATH] = DEV_LIBRARY_PATH
+        folder_picker(
+            col_right,
+            title="Library",
+            key="btn_custom",
+            state_key=LIBRARY_PATH,
+        )
     if not _are_path_selected():
         return ([], [])
     return service.script_n_custom_nodes(
@@ -82,7 +86,7 @@ def _get_dependency_count(node: DynamoFile, library_uuid: Set[str]) -> int:
 
 
 def _node_display(node: DynamoFile, library_uuid: Set[str]) -> str:
-    if st.session_state[SELECT_TYPE_KEY].startswith(UNUSED_TYPE):
+    if _is_unused_selected(st.session_state[SELECT_TYPE_KEY]):
         return _display_unused(node)
     dependencies = _get_dependency_count(node, library_uuid)
     if st.session_state[SORT_KEY] == SORT_DEPENDENCY:
@@ -110,29 +114,44 @@ def _option_name(node_name: str, nodes: Collection[DynamoFile]) -> str:
     return f"{node_name} ({len(nodes)})"
 
 
-def add_node_type_radio(scripts: Collection[ScriptFile], custom: Collection[CustomNodeFile]) -> Iterable[DynamoFile]:
+def _is_script_selected(selected: Optional[str]) -> bool:
+    return selected is not None and selected.startswith(SCRIPT_TYPE)
+
+
+def _is_custom_selected(selected: Optional[str]) -> bool:
+    return selected is not None and selected.startswith(CUSTOM_TYPE)
+
+
+def _is_unused_selected(selected: Optional[str]) -> bool:
+    return selected is not None and selected.startswith(UNUSED_TYPE)
+
+
+def add_node_type_radio(
+    column, scripts: Collection[ScriptFile], custom: Collection[CustomNodeFile]
+) -> Iterable[DynamoFile]:
     scripts = [node for node in scripts if node.has_dependency]
     unused = [node for node in custom if node.is_unused and not node.is_generated]
     custom = [node for node in custom if not node.is_unused and not node.is_generated]
-    node_type = st.radio(
-        label="Select type.",
-        options=[
-            _option_name(SCRIPT_TYPE, scripts),
-            _option_name(CUSTOM_TYPE, custom),
-            _option_name(UNUSED_TYPE, unused),
-        ],
-        key=SELECT_TYPE_KEY,
-        horizontal=True,
-    )
-    if node_type is None:
+    with column:
+        node_type = st.radio(
+            label="Select type.",
+            options=[
+                _option_name(SCRIPT_TYPE, scripts),
+                _option_name(CUSTOM_TYPE, custom),
+                _option_name(UNUSED_TYPE, unused),
+            ],
+            horizontal=True,
+            key=SELECT_TYPE_KEY,
+        )
+        if node_type is None:
+            return []
+        if _is_script_selected(node_type):
+            return scripts
+        if _is_custom_selected(node_type):
+            return custom
+        if _is_unused_selected(node_type):
+            return unused
         return []
-    if node_type.startswith(SCRIPT_TYPE):
-        return scripts
-    if node_type.startswith(CUSTOM_TYPE):
-        return custom
-    if node_type.startswith(UNUSED_TYPE):
-        return unused
-    return []
 
 
 def sort_node_name(node: DynamoFile) -> str:
@@ -169,8 +188,10 @@ def _sort_function(sort: Optional[str]) -> Tuple[Callable[[DynamoFile], Union[in
 
 
 def _get_sort_options() -> List[str]:
-    options = [SORT_NODE_NAME, SORT_FILE_NAME, SORT_DEPENDENCY]
-    if st.session_state[SELECT_TYPE_KEY] == CUSTOM_TYPE:
+    options = [SORT_NODE_NAME, SORT_FILE_NAME]
+    if not _is_unused_selected(st.session_state[SELECT_TYPE_KEY]):
+        options.append(SORT_DEPENDENCY)
+    if _is_custom_selected(st.session_state[SELECT_TYPE_KEY]):
         options.append(SORT_USED_IN)
     return options
 
@@ -178,22 +199,22 @@ def _get_sort_options() -> List[str]:
 def add_node_sort_radio(nodes: Iterable[DynamoFile]) -> List[DynamoFile]:
     if nodes is None:
         return []
-    sort_func = st.radio(
-        label="Sorting.",
-        options=_get_sort_options(),
-        horizontal=True,
-        key=SORT_KEY,
-    )
-    sort_func, reverse = _sort_function(sort_func)
-    return sorted(nodes, key=sort_func, reverse=reverse)
+    with st.sidebar:
+        st.divider()
+        sort_func = st.radio(
+            label="Sorting.",
+            options=_get_sort_options(),
+            key=SORT_KEY,
+        )
+        sort_func, reverse = _sort_function(sort_func)
+        return sorted(nodes, key=sort_func, reverse=reverse)
 
 
 def add_node_sort_and_type(
     column, script: Collection[ScriptFile], custom: Collection[CustomNodeFile]
 ) -> List[DynamoFile]:
-    with column:
-        nodes = add_node_type_radio(script, custom)
-        return add_node_sort_radio(nodes)
+    nodes = add_node_type_radio(column, script, custom)
+    return add_node_sort_radio(nodes)
 
 
 def add_selection_box(column, nodes: Iterable[DynamoFile], library: Iterable[CustomNodeFile]):
@@ -209,13 +230,33 @@ def add_selection_box(column, nodes: Iterable[DynamoFile], library: Iterable[Cus
         return selected
 
 
-def _get_node(node: DynamoFile, selectable: bool) -> Dict[str, Any]:
+def _node_color(node: DynamoFile, root_node: bool = False) -> str:
+    if node.is_backup:
+        return "cyan"
+    if root_node:
+        return "red"
+    if node.is_script:
+        return "orange"
+    return "brown"
+
+
+def _node_shape(node: DynamoFile, root_node: bool = False) -> str:
+    if node.is_backup:
+        return "vee"
+    if root_node:
+        return "triangle"
+    if node.is_script:
+        return "round-hexagon"
+    return "cut-rectangle"
+
+
+def _get_node(node: DynamoFile, selectable: bool, root_node: bool = False) -> Dict[str, Any]:
     return {
         "data": {
             "id": node.uuid,
             "name": node.name,
-            "color": "cyan" if isinstance(node, CustomNodeFile) else "green",
-            "shape": "rectangle" if isinstance(node, CustomNodeFile) else "round-tag",
+            "color": _node_color(node, root_node),
+            "shape": _node_shape(node, root_node),
         },
         "selected": False,
         "selectable": selectable,
@@ -223,7 +264,7 @@ def _get_node(node: DynamoFile, selectable: bool) -> Dict[str, Any]:
 
 
 def _get_graph_nodes(element: GraphElement) -> List[Dict[str, Any]]:
-    elements = [_get_node(element.node, selectable=False)]
+    elements = [_get_node(element.node, selectable=False, root_node=True)]
     for dep in element.dependencies:
         elements.append(_get_node(dep, selectable=True))
     for used in element.used_in:
@@ -301,20 +342,21 @@ def _get_graph(column, node: Optional[DynamoFile], library: Iterable[CustomNodeF
     nodes = [node, *library, *node.node_used_in()]
     node_dict = {node.uuid: node for node in nodes}
     with column:
-        selected = graph.cytoscape(
-            elements=_get_elements(node, library),
-            stylesheet=_get_graph_style(),
-            layout=_get_graph_layout(),
-            selection_type="single",
-            user_panning_enabled=True,
-            user_zooming_enabled=True,
-            key="graph",
-            height="500px",
-        )
-        selected_nodes = selected.get("nodes", [])
-        if len(selected_nodes) == 0:
-            return None
-        return node_dict.get(selected_nodes[0])
+        with st.container(border=True):
+            selected = graph.cytoscape(
+                elements=_get_elements(node, library),
+                stylesheet=_get_graph_style(),
+                layout=_get_graph_layout(),
+                selection_type="single",
+                user_panning_enabled=True,
+                user_zooming_enabled=True,
+                key="graph",
+                height="500px",
+            )
+            selected_nodes = selected.get("nodes", [])
+            if len(selected_nodes) == 0:
+                return None
+            return node_dict.get(selected_nodes[0])
 
 
 def _get_detail(column, node: Optional[DynamoFile]) -> None:
@@ -332,9 +374,13 @@ def _get_detail(column, node: Optional[DynamoFile]) -> None:
 def init_graph():
     scripts, library = input_data()
     col_left, col_right = st.columns(2)
-    nodes = add_node_sort_and_type(col_left, scripts, library)
+    nodes = add_node_sort_and_type(col_right, scripts, library)
     root_node = add_selection_box(col_left, nodes, library)
+    st.divider()
+    col_left, col_right = st.columns(2)
     selected_node = _get_graph(col_left, root_node, library)
+    if selected_node is None:
+        selected_node = root_node
     _get_detail(col_right, selected_node)
 
 

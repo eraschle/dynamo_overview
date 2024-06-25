@@ -39,6 +39,14 @@ class DynamoFile:
     def has_dependency(self) -> bool:
         return len(self.dependencies) > 0
 
+    @property
+    def is_custom_node(self) -> bool:
+        return self.path.suffix.lower().endswith("dyf")
+
+    @property
+    def is_script(self) -> bool:
+        return self.path.suffix.lower().endswith("dyn")
+
     @abstractmethod
     def add_used_in(self, nodes: Iterable["DynamoFile"]) -> None:
         pass

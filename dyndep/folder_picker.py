@@ -9,7 +9,7 @@ import streamlit as st
 # Folder picker button
 def folder_picker(column, title: str, key: str, state_key: str) -> None:
     with column:
-        st.subheader(body=title, divider=True)
+        st.write(title)
         clicked = st.button(label="Select Path", key=key)
         if clicked:
             root = tk.Tk()
@@ -25,7 +25,3 @@ def folder_picker(column, title: str, key: str, state_key: str) -> None:
             if not os.path.exists(selected):
                 return
             st.session_state[state_key] = selected
-        current = st.session_state.get(state_key)
-        if current is None:
-            current = "Please select a folder"
-        st.text(current)
