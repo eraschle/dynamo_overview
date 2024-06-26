@@ -1,14 +1,17 @@
-import codecs
 import json
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
-from dyndep.models import CodeNode, CustomNodeFile, ScriptFile
+from altair import Optional
+
+from dyndep.models import CodeNode, CustomNodeFile, DynFile, ScriptFile
 
 
-def _get_file_content(path: Path) -> Dict[str, Any]:
-    with codecs.open(str(path), mode="r", encoding="utf-8") as file:
-        return json.load(file)
+def _get_file_content(file: DynFile) -> Optional[Dict[str, Any]]:
+    try:
+        return json.loads(file.getvalue())
+    except json.JSONDecodeError:
+        print(f"Error in {file.name} ({file.file_id}) {file.type}")
+        return None
 
 
 def _file_node_uuid(content: Dict[str, Any]) -> str:
@@ -86,40 +89,38 @@ def _custom_categories(content: Dict[str, Any]) -> List[str]:
     return category.split(".")
 
 
-def _create_custom_node(path: Path, root: Path) -> CustomNodeFile:
-    content = _get_file_content(path)
+def _create_custom_node(file: DynFile) -> Optional[CustomNodeFile]:
+    content = _get_file_content(file)
+    if content is None:
+        return None
     return CustomNodeFile(
         uuid=_file_node_uuid(content),
         name=_get_node_name(content),
-        root_path=root,
-        path=path,
+        file=file,
         categories=_custom_categories(content),
         dependencies=_node_dependencies(content),
         nodes=_get_code_nodes(content),
     )
 
 
-def get_custom_file_nodes(path: Path) -> List[CustomNodeFile]:
-    nodes = []
-    for node_path in path.rglob("*.dyf"):
-        nodes.append(_create_custom_node(node_path, path))
-    return nodes
+def get_custom_file_nodes(files: Iterable[DynFile]) -> List[CustomNodeFile]:
+    nodes = [_create_custom_node(file) for file in files]
+    return [node for node in nodes if node is not None]
 
 
-def _create_script(path: Path, root: Path) -> ScriptFile:
-    content = _get_file_content(path)
+def _create_script(file: DynFile) -> Optional[ScriptFile]:
+    content = _get_file_content(file)
+    if content is None:
+        return None
     return ScriptFile(
         uuid=_file_node_uuid(content),
         name=_get_node_name(content),
-        root_path=root,
-        path=path,
+        file=file,
         dependencies=_node_dependencies(content),
         nodes=_get_code_nodes(content),
     )
 
 
-def get_script_nodes(path: Path) -> List[ScriptFile]:
-    scripts = []
-    for script in path.rglob("*.dyn"):
-        scripts.append(_create_script(script, path))
-    return scripts
+def get_script_nodes(files: Iterable[DynFile]) -> List[ScriptFile]:
+    scripts = [_create_script(file) for file in files]
+    return [node for node in scripts if node is not None]

@@ -1,17 +1,12 @@
-from pathlib import Path
-from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Set, Tuple, TypeGuard, Union
 
 import st_cytoscape as graph
 import streamlit as st
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from dyndep import service
-from dyndep.folder_picker import folder_picker
 from dyndep.models import CustomNodeFile, DynamoFile, ScriptFile
 from dyndep.service import GraphElement
-
-DEBUG = True
-DEV_SCRIPT_PATH = "/home/elyo/workspace/work/skripte/"
-DEV_LIBRARY_PATH = "/home/elyo/workspace/work/software/Dynamo/Packages/packages/RSRG/"
 
 st.set_page_config(
     page_title="Dynamo Overview",
@@ -19,39 +14,34 @@ st.set_page_config(
     layout="wide",
 )
 
-SCRIPT_PATH = "script_path"
-LIBRARY_PATH = "library_path"
+
+def _are_custom_uploaded() -> bool:
+    return st.session_state.nodes
 
 
-def _are_path_selected():
-    return not (st.session_state.get(SCRIPT_PATH) is None or st.session_state.get(LIBRARY_PATH) is None)
+def _are_scripts_uploaded() -> bool:
+    return st.session_state.scripts
+
+
+def _are_files_uploaded(files: Optional[Iterable[UploadedFile]]) -> TypeGuard[Iterable[UploadedFile]]:
+    if files is None:
+        return False
+    st.session_state.nodes = service.are_custom_nodes_in(files)
+    st.session_state.scripts = service.are_scripts_in(files)
+    return _are_scripts_uploaded() and _are_custom_uploaded()
 
 
 def input_data() -> Tuple[Collection[ScriptFile], Collection[CustomNodeFile]]:
     with st.sidebar:
-        col_left, col_right = st.columns(2)
-        if DEBUG:
-            st.session_state[SCRIPT_PATH] = DEV_SCRIPT_PATH
-        folder_picker(
-            col_left,
-            title="Skripts",
-            key="btn_scripts",
-            state_key=SCRIPT_PATH,
+        uploaded = st.file_uploader(
+            label="Upload Script and Custom Nodes",
+            accept_multiple_files=True,
+            type=("dyn", "dyf"),
+            label_visibility="collapsed",
         )
-        if DEBUG:
-            st.session_state[LIBRARY_PATH] = DEV_LIBRARY_PATH
-        folder_picker(
-            col_right,
-            title="Library",
-            key="btn_custom",
-            state_key=LIBRARY_PATH,
-        )
-    if not _are_path_selected():
-        return ([], [])
-    return service.script_n_custom_nodes(
-        Path(st.session_state[SCRIPT_PATH]),
-        Path(st.session_state[LIBRARY_PATH]),
-    )
+        if not _are_files_uploaded(uploaded):
+            return ([], [])
+        return service.script_n_custom_nodes(uploaded)
 
 
 DEPENDENCY_STR = "Dependency"
@@ -112,10 +102,18 @@ UNUSED_TYPE = "Unused Nodes"
 SELECT_TYPE_KEY = "select_node_type"
 
 
+def _do_script_with_numbers(node_name: str) -> bool:
+    return node_name == SCRIPT_TYPE and _are_scripts_uploaded()
+
+
+def _do_custom_with_numbers(node_name: str) -> bool:
+    return node_name in (CUSTOM_TYPE, UNUSED_TYPE) and _are_custom_uploaded()
+
+
 def _option_name(node_name: str, nodes: Collection[DynamoFile]) -> str:
-    if not _are_path_selected():
-        return node_name
-    return f"{node_name} ({len(nodes)})"
+    if _do_script_with_numbers(node_name) or _do_custom_with_numbers(node_name):
+        return f"{node_name} ({len(nodes)})"
+    return node_name
 
 
 def _is_script_selected(selected: Optional[str]) -> bool:
@@ -135,7 +133,7 @@ def add_node_type_radio(
 ) -> Iterable[DynamoFile]:
     scripts = [node for node in scripts if node.has_dependency]
     unused = [node for node in custom if node.is_unused and not node.is_generated]
-    custom = [node for node in custom if not node.is_unused and not node.is_generated]
+    custom = [node for node in custom if not node.is_unused]
     with column:
         node_type = st.radio(
             label="Select type.",
@@ -163,7 +161,7 @@ def sort_node_name(node: DynamoFile) -> str:
 
 
 def sort_file_name(node: DynamoFile) -> str:
-    return node.path.name
+    return node.file.name
 
 
 def sort_dependency(node: DynamoFile) -> int:
@@ -235,8 +233,6 @@ def add_selection_box(column, nodes: Iterable[DynamoFile], library: Iterable[Cus
 
 
 def _node_color(node: DynamoFile, root_node: bool = False) -> str:
-    if node.is_backup:
-        return "cyan"
     if root_node:
         return "red"
     if node.is_script:
@@ -245,8 +241,6 @@ def _node_color(node: DynamoFile, root_node: bool = False) -> str:
 
 
 def _node_shape(node: DynamoFile, root_node: bool = False) -> str:
-    if node.is_backup:
-        return "vee"
     if root_node:
         return "triangle"
     if node.is_script:
@@ -369,7 +363,6 @@ def _get_detail(column, node: Optional[DynamoFile]) -> None:
     with column:
         detail = st.container(border=True)
         detail.subheader(node.name)
-        detail.text(node.sub_path)
         for code in node.nodes:
             exp = detail.expander(code.name)
             exp.code(code.code)

@@ -1,29 +1,14 @@
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from pathlib import Path
-import re
-from typing import Iterable, List
-
-RE_BACKUP = re.compile("[_]+Backup[_]*")
-
-BKP_VALUES = [
-    "_Backup",
-    "__dev__",
-]
+from typing import Iterable, List, Protocol
 
 
-def is_backup_name(name: str) -> bool:
-    return any(val in name for val in BKP_VALUES)
+class DynFile(Protocol):
+    file_id: str
+    name: str
+    type: str
 
-
-def is_backup(path: Path) -> bool:
-    print(f"BKP Check {path}")
-    if is_backup_name(path.name):
-        return True
-    is_bkp = any(is_backup_name(par.name) for par in path.parents)
-    if is_bkp:
-        print(f"Is BKP: {path}")
-    return is_bkp
+    def getvalue(self) -> bytes: ...
 
 
 @dataclass
@@ -38,20 +23,9 @@ class CodeNode:
 class DynamoFile:
     uuid: str = field(compare=True, repr=True)
     name: str = field(compare=False, repr=True)
-    root_path: Path = field(compare=False, repr=False)
-    path: Path = field(compare=True, repr=True)
+    file: DynFile = field(compare=False, repr=False)
     dependencies: List[str] = field(compare=False, repr=False)
     nodes: List[CodeNode] = field(compare=False, repr=False)
-
-    @property
-    def key(self) -> str:
-        return f"{self.uuid}-{self.sub_path}"
-
-    @property
-    def sub_path(self) -> str:
-        root = str(self.root_path)
-        file = str(self.path)
-        return file.replace(root, "")
 
     @property
     def is_unused(self) -> bool:
@@ -63,15 +37,11 @@ class DynamoFile:
 
     @property
     def is_custom_node(self) -> bool:
-        return self.path.suffix.lower().endswith("dyf")
+        return self.file.name.lower().endswith("dyf")
 
     @property
     def is_script(self) -> bool:
-        return self.path.suffix.lower().endswith("dyn")
-
-    @property
-    def is_backup(self) -> bool:
-        return is_backup(self.path)
+        return self.file.name.lower().endswith("dyn")
 
     @abstractmethod
     def add_used_in(self, nodes: Iterable["DynamoFile"]) -> None:
@@ -95,7 +65,7 @@ class CustomNodeFile(DynamoFile):
 
     @property
     def is_generated(self) -> bool:
-        return self.path.name.startswith("Generate")
+        return self.file.name.startswith("Generate")
 
     def node_used_in(self) -> List[DynamoFile]:
         return sorted(self.used_in, key=lambda ele: ele.name)
