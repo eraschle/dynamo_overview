@@ -1,9 +1,8 @@
 import json
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
-from altair import Optional
-
-from dyndep.models import CodeNode, CustomNodeFile, DynFile, ScriptFile
+from dyndep import content_builder as node
+from dyndep.models import Annotation, CustomNode, CustomNodeFile, DynamoNode, DynFile, Package, ScriptFile
 
 
 def _get_file_content(file: DynFile) -> Optional[Dict[str, Any]]:
@@ -21,60 +20,53 @@ def _file_node_uuid(content: Dict[str, Any]) -> str:
     return uuid
 
 
-def _get_node_name(content: Dict[str, Any]) -> str:
-    name = content.get("Name", None)
-    if name is None:
-        raise Exception("Content has no Name")
-    return name
-
-
-def _get_node_id(content: Dict[str, Any]) -> str:
-    node_id = content["Id"]
-    if node_id is None:
-        raise Exception(f"{content} has no ID")
-    return node_id
-
-
-CODE_NODES = {
-    "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
-    "NodeType": "PythonScriptNode",
-}
-
-
-def _is_code_node(content: Dict[str, Any]) -> bool:
-    return all(content.get(key, None) == value for key, value in CODE_NODES.items())
+def _get_packages(file_content: Dict[str, Any]) -> Dict[str, Package]:
+    package_dict = {}
+    builder = node.package_builder()
+    for content in file_content.get("NodeLibraryDependencies", []):
+        if not builder.is_builder_for(content):
+            continue
+        package = builder.build(content)
+        package_dict.update(
+            {node_id: package for node_id in builder.get_node_ids(content)},
+        )
+    return package_dict
 
 
 def _get_node_view_dict(file_content: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     view_dict = {}
     for view in file_content.get("View", {}).get("NodeViews", []):
-        node_id = _get_node_id(view)
+        node_id = node.get_node_id(view)
         view_dict[node_id] = view
     return view_dict
 
 
-def _create_code_node(node_content: Dict[str, Any], view_dict: Dict[str, Dict[str, Any]]) -> CodeNode:
-    node_id = _get_node_id(node_content)
-    if node_id not in view_dict:
-        raise Exception(f"No Node View for {node_id}")
-    return CodeNode(
-        uuid=node_id,
-        name=_get_node_name(view_dict[node_id]),
-        code=node_content["Code"],
-        engine=node_content.get("Engine", "IronPython2"),
-    )
+def _add_package(node: DynamoNode, packages: Dict[str, Package]) -> DynamoNode:
+    if isinstance(node, CustomNode) and node.uuid in packages:
+        node.package = packages[node.uuid]
+    return node
 
 
-def _get_code_nodes(file_content: Dict[str, Any]) -> List[CodeNode]:
+def _get_nodes(file_content: Dict[str, Any]) -> List[DynamoNode]:
     if "View" not in file_content:
         return []
     nodes = []
     view_dict = _get_node_view_dict(file_content)
+    package_dict = _get_packages(file_content)
     for content in file_content.get("Nodes", []):
-        if not _is_code_node(content):
-            continue
-        nodes.append(_create_code_node(content, view_dict))
+        builder = node.node_builder(content)
+        content_node = builder.build(content, view_dict)
+        content_node = _add_package(content_node, package_dict)
+        nodes.append(content_node)
     return nodes
+
+
+def _get_groups(file_content: Dict[str, Any], nodes: Iterable[DynamoNode]) -> List[Annotation]:
+    groups = file_content.get("Annotations", [])
+    if len(groups) == 0:
+        return []
+    builder = node.annotion_builder()
+    return [builder.build(grp, nodes) for grp in groups]
 
 
 def _node_dependencies(content: Dict[str, Any]) -> List[str]:
@@ -93,13 +85,15 @@ def _create_custom_node(file: DynFile) -> Optional[CustomNodeFile]:
     content = _get_file_content(file)
     if content is None:
         return None
+    nodes = _get_nodes(content)
     return CustomNodeFile(
         uuid=_file_node_uuid(content),
-        name=_get_node_name(content),
+        name=node.get_node_name(content),
         file=file,
+        nodes=nodes,
         categories=_custom_categories(content),
         dependencies=_node_dependencies(content),
-        nodes=_get_code_nodes(content),
+        groups=_get_groups(content, nodes),
     )
 
 
@@ -112,12 +106,14 @@ def _create_script(file: DynFile) -> Optional[ScriptFile]:
     content = _get_file_content(file)
     if content is None:
         return None
+    nodes = _get_nodes(content)
     return ScriptFile(
         uuid=_file_node_uuid(content),
-        name=_get_node_name(content),
+        name=node.get_node_name(content),
         file=file,
+        nodes=nodes,
         dependencies=_node_dependencies(content),
-        nodes=_get_code_nodes(content),
+        groups=_get_groups(content, nodes),
     )
 
 

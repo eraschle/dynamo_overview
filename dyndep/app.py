@@ -1,16 +1,19 @@
-from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Set, Tuple, TypeGuard, Union
+import textwrap as text
+from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TypeGuard, Union
 
 import st_cytoscape as graph
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator as DeltaGen
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from dyndep import service
-from dyndep.models import CustomNodeFile, DynamoFile, ScriptFile
+from dyndep.models import Annotation, BaseNode, CustomNode, CustomNodeFile, DynamoFile, PythonCodeNode, ScriptFile
 from dyndep.service import GraphElement
+
 
 st.set_page_config(
     page_title="Dynamo Overview",
-    page_icon="./apps/overview/dynamo.png",
+    page_icon="./dynamo.png",
     layout="wide",
 )
 
@@ -198,7 +201,7 @@ def _get_sort_options() -> List[str]:
     return options
 
 
-def add_node_sort_radio(nodes: Iterable[DynamoFile]) -> List[DynamoFile]:
+def add_node_sort_radio(nodes: Iterable[DynamoFile] | None) -> List[DynamoFile]:
     if nodes is None:
         return []
     with st.sidebar:
@@ -212,14 +215,14 @@ def add_node_sort_radio(nodes: Iterable[DynamoFile]) -> List[DynamoFile]:
         return sorted(nodes, key=sort_func, reverse=reverse)
 
 
-def add_node_sort_and_type(
+def _sort_and_type_radio(
     column, script: Collection[ScriptFile], custom: Collection[CustomNodeFile]
 ) -> List[DynamoFile]:
     nodes = add_node_type_radio(column, script, custom)
     return add_node_sort_radio(nodes)
 
 
-def add_selection_box(column, nodes: Iterable[DynamoFile], library: Iterable[CustomNodeFile]):
+def _file_selection_box(column, nodes: Iterable[DynamoFile], library: Iterable[CustomNodeFile]):
     library_uuid = set([node.uuid for node in library])
     selection_nodes = [node for node in nodes if _show_in_selection(node, library_uuid)]
     with column:
@@ -232,7 +235,7 @@ def add_selection_box(column, nodes: Iterable[DynamoFile], library: Iterable[Cus
         return selected
 
 
-def _node_color(node: DynamoFile, root_node: bool = False) -> str:
+def _get_graph_node_color(node: DynamoFile, root_node: bool = False) -> str:
     if root_node:
         return "red"
     if node.is_script:
@@ -240,7 +243,7 @@ def _node_color(node: DynamoFile, root_node: bool = False) -> str:
     return "brown"
 
 
-def _node_shape(node: DynamoFile, root_node: bool = False) -> str:
+def _get_graph_node_shape(node: DynamoFile, root_node: bool = False) -> str:
     if root_node:
         return "triangle"
     if node.is_script:
@@ -248,13 +251,13 @@ def _node_shape(node: DynamoFile, root_node: bool = False) -> str:
     return "cut-rectangle"
 
 
-def _get_node(node: DynamoFile, selectable: bool, root_node: bool = False) -> Dict[str, Any]:
+def _get_graph_node(node: DynamoFile, selectable: bool, root_node: bool = False) -> Dict[str, Any]:
     return {
         "data": {
             "id": node.uuid,
             "name": node.name,
-            "color": _node_color(node, root_node),
-            "shape": _node_shape(node, root_node),
+            "color": _get_graph_node_color(node, root_node),
+            "shape": _get_graph_node_shape(node, root_node),
         },
         "selected": False,
         "selectable": selectable,
@@ -262,11 +265,11 @@ def _get_node(node: DynamoFile, selectable: bool, root_node: bool = False) -> Di
 
 
 def _get_graph_nodes(element: GraphElement) -> List[Dict[str, Any]]:
-    elements = [_get_node(element.node, selectable=False, root_node=True)]
+    elements = [_get_graph_node(element.node, selectable=False, root_node=True)]
     for dep in element.dependencies:
-        elements.append(_get_node(dep, selectable=True))
+        elements.append(_get_graph_node(dep, selectable=True))
     for used in element.used_in:
-        elements.append(_get_node(used, selectable=True))
+        elements.append(_get_graph_node(used, selectable=True))
     return elements
 
 
@@ -334,7 +337,9 @@ def _get_elements(selected: Optional[DynamoFile], library: Iterable[CustomNodeFi
     return _get_graph_nodes(element) + _get_graph_edge(element)
 
 
-def _get_graph(column, node: Optional[DynamoFile], library: Iterable[CustomNodeFile]) -> Optional[DynamoFile]:
+def _show_dependency_graph(
+    column, node: Optional[DynamoFile], library: Iterable[CustomNodeFile]
+) -> Optional[DynamoFile]:
     if node is None:
         return None
     nodes = [node, *library, *node.node_used_in()]
@@ -357,29 +362,119 @@ def _get_graph(column, node: Optional[DynamoFile], library: Iterable[CustomNodeF
             return node_dict.get(selected_nodes[0])
 
 
-def _get_detail(column, node: Optional[DynamoFile]) -> None:
-    if node is None:
+def _prepare_title(title: str, width_title: int) -> str:
+    if len(title) < width_title:
+        return f"{title}:".rjust(width_title)
+    return f"{text.shorten(title, width=width_title - 1)}:"
+
+
+def _get_expander(parent: DeltaGen, title: str, nodes: Optional[Sequence[BaseNode]], width_title: int = 30) -> DeltaGen:
+    title = _prepare_title(title, width_title)
+    if nodes is not None:
+        title = f"{title} {len(nodes)}"
+    return parent.expander(title)
+
+
+def _display_python_code(node: PythonCodeNode, width_title: int) -> str:
+    title = _prepare_title(node.name, width_title)
+    return f"{title} [{node.engine}]"
+
+
+def _show_python_code(parent: DeltaGen, file: DynamoFile, width_title: int) -> None:
+    if not file.has_nodes(PythonCodeNode):
+        return
+    nodes = file.get_nodes(PythonCodeNode)
+    with _get_expander(parent, "Python Code", nodes):
+        selected_node = st.selectbox(
+            label="Select python node:",
+            options=nodes,
+            format_func=lambda node: _display_python_code(node, width_title),
+            placeholder="Select Node to display code...",
+        )
+        if selected_node is None:
+            return
+        st.code(selected_node.code)
+
+
+def _display_custom_node(node: CustomNode, width_title: int) -> str:
+    title = _prepare_title(node.name, width_title)
+    return f"{title} ({node.package.name} [{node.package.version}])"
+
+
+def _display_node(node: BaseNode, width_title: int) -> str:
+    if isinstance(node, Annotation):
+        prefix, name = "Group", _display_group(node, width_title)
+    elif isinstance(node, PythonCodeNode):
+        prefix, name = "Python", _display_python_code(node, width_title)
+    elif isinstance(node, CustomNode):
+        prefix, name = "Custom", _display_custom_node(node, width_title)
+    else:
+        prefix, name = "Others", node.name
+    return f"{prefix} {name}"
+
+
+def _get_sorted_nodes(file: DynamoFile, width_title: int) -> List[BaseNode]:
+    nodes = file.nodes + file.groups
+    return sorted(nodes, key=lambda node: _display_node(node, width_title))
+
+
+def _show_node_content(parent: DeltaGen, file: DynamoFile, width_title: int) -> None:
+    nodes = _get_sorted_nodes(file, width_title)
+    with _get_expander(parent, "File Content", nodes):
+        selected = st.selectbox(
+            label="Select node:",
+            options=nodes,
+            format_func=lambda node: _display_node(node, width_title),
+            placeholder="Select node to display file content...",
+        )
+        if selected is None:
+            return
+        st.json(selected.content)
+
+
+def _display_group(group: Annotation, width_title: int) -> str:
+    title = _prepare_title(group.name, width_title)
+    return f"{title} ({group.nodes})"
+
+
+def _show_overview_groups(parent: DeltaGen, file: DynamoFile, width_title: int) -> None:
+    if not file.has_groups:
+        return
+    nodes = file.groups
+    with _get_expander(parent, "Groups", nodes):
+        selected = st.selectbox(
+            label="Select group:",
+            options=nodes,
+            format_func=lambda node: _display_group(node, width_title),
+            placeholder="Select group to display info...",
+        )
+        if selected is None:
+            return
+
+
+def _show_information(column: DeltaGen, file: Optional[DynamoFile], width_title: int) -> None:
+    if file is None:
         return
     with column:
-        detail = st.container(border=True)
-        detail.subheader(node.name)
-        for code in node.nodes:
-            exp = detail.expander(code.name)
-            exp.code(code.code)
+        container = st.container(border=True)
+        container.subheader(file.name)
+        _show_python_code(container, file, width_title)
+        _show_overview_groups(container, file, width_title)
+        _show_node_content(container, file, width_title)
 
 
-def init_graph():
+def show_graph():
     scripts, library = input_data()
     col_left, col_right = st.columns(2)
-    nodes = add_node_sort_and_type(col_right, scripts, library)
-    root_node = add_selection_box(col_left, nodes, library)
+    nodes = _sort_and_type_radio(col_right, scripts, library)
+    root_node = _file_selection_box(col_left, nodes, library)
     st.divider()
     col_left, col_right = st.columns(2)
-    selected_node = _get_graph(col_left, root_node, library)
+    selected_node = _show_dependency_graph(col_left, root_node, library)
     if selected_node is None:
         selected_node = root_node
-    _get_detail(col_right, selected_node)
+    _show_information(col_right, selected_node, width_title=40)
 
 
 if __name__ == "__main__":
-    init_graph()
+    show_graph()
